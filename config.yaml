@@ -1,0 +1,18 @@
+listen: ":8080"
+
+clients:
+  - name: demo
+    key: demo-key-123        # use ${ENV_VAR} to load secrets from the environment
+    rate: 2                  # tokens refilled per second
+    burst: 5                 # bucket capacity
+  - name: partner
+    key: ${PARTNER_API_KEY}
+    rate: 10
+    burst: 20
+
+routes:
+  - prefix: /httpbin/
+    upstream: https://httpbin.org
+    strip_prefix: true
+  - prefix: /
+    upstream: https://jsonplaceholder.typicode.com

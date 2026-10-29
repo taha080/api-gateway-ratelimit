@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Bucket Playground · api-gateway-ratelimit</title>
+<meta name="description" content="Interactive token bucket rate limiting simulator for the api-gateway-ratelimit Go API gateway.">
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--line:#334155;--text:#e2e8f0;--muted:#94a3b8;--ok:#22c55e;--bad:#ef4444;--acc:#38bdf8}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;overflow-wrap:anywhere}
+.wrap{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+header h1{font-size:clamp(1.4rem,4vw,2rem);margin:0 0 4px}
+header p{color:var(--muted);margin:0 0 20px}
+a{color:var(--acc)}
+.grid{display:grid;gap:16px;grid-template-columns:1fr}
+@media(min-width:760px){.grid{grid-template-columns:1fr 1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;min-width:0}
+.card h2{font-size:1.05rem;margin:0 0 12px}
+label{display:flex;justify-content:space-between;gap:8px;font-size:.95rem;margin-top:10px}
+label b{color:var(--acc);white-space:nowrap}
+input[type=range]{width:100%;margin:6px 0 4px;accent-color:var(--acc);height:28px}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px 10px;cursor:pointer;color:#0f172a;background:var(--acc);min-height:46px}
+button.alt{background:#475569;color:var(--text)}
+button:active{transform:scale(.98)}
+.bucketBox{display:flex;align-items:flex-end;gap:16px}
+.bucket{position:relative;width:110px;height:170px;border:3px solid var(--muted);border-top:0;border-radius:0 0 18px 18px;overflow:hidden;flex:none}
+.fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(#38bdf8,#0ea5e9);transition:height .1s linear}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;flex:1;min-width:0}
+.stat{background:#0f172a;border-radius:10px;padding:8px 10px;min-width:0}
+.stat span{display:block;font-size:.78rem;color:var(--muted)}
+.stat strong{font-size:1.25rem}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.log{display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow-y:auto;margin-top:8px}
+.pill{font-size:.78rem;font-weight:700;padding:3px 8px;border-radius:999px;animation:pop .25s}
+.pill.ok{background:rgba(34,197,94,.15)}.pill.bad{background:rgba(239,68,68,.15)}
+@keyframes pop{from{transform:scale(.6);opacity:0}}
+canvas{width:100%;height:160px;display:block;background:#0f172a;border-radius:10px}
+pre{background:#0f172a;border-radius:10px;padding:12px;overflow-x:auto;font-size:.82rem;margin:0}
+.legend{display:flex;gap:14px;font-size:.82rem;color:var(--muted);margin-top:8px;flex-wrap:wrap}
+footer{color:var(--muted);font-size:.85rem;margin-top:24px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>Token Bucket Playground</h1>
+<p>See how <a href="https://github.com/taha080/api-gateway-ratelimit">api-gateway-ratelimit</a> decides between <span class="ok">200 OK</span> and <span class="bad">429 Too Many Requests</span>. Same algorithm as the Go gateway, running in your browser.</p>
+</header>
+<div class="grid">
+<section class="card">
+<h2>Settings</h2>
+<label for="rate">Refill rate <b id="rateV"></b></label>
+<input id="rate" type="range" min="0.5" max="20" step="0.5" value="2">
+<label for="burst">Burst (bucket size) <b id="burstV"></b></label>
+<input id="burst" type="range" min="1" max="30" step="1" value="5">
+<label for="batch">Requests per click <b id="batchV"></b></label>
+<input id="batch" type="range" min="1" max="20" step="1" value="1">
+<div class="btns">
+<button id="fire">Fire requests</button>
+<button id="auto" class="alt">Start auto-fire</button>
+<button id="burstBtn" class="alt">Send burst ×20</button>
+<button id="reset" class="alt">Reset</button>
+</div>
+</section>
+<section class="card">
+<h2>Bucket</h2>
+<div class="bucketBox">
+<div class="bucket" aria-label="token bucket"><div class="fill" id="fill"></div></div>
+<div class="stats">
+<div class="stat"><span>Tokens</span><strong id="tok">0</strong></div>
+<div class="stat"><span>Retry-After</span><strong id="retry">0s</strong></div>
+<div class="stat"><span>Allowed</span><strong class="ok" id="okN">0</strong></div>
+<div class="stat"><span>429s</span><strong class="bad" id="badN">0</strong></div>
+</div>
+</div>
+<div class="log" id="log" aria-live="polite"></div>
+</section>
+<section class="card">
+<h2>Last 30 seconds</h2>
+<canvas id="chart"></canvas>
+<div class="legend"><span class="ok">■ allowed</span><span class="bad">■ 429</span></div>
+</section>
+<section class="card">
+<h2>Equivalent gateway config</h2>
+<pre id="cfg"></pre>
+</section>
+</div>
+<footer>MIT licensed · 100% free and open source · <a href="https://github.com/taha080/api-gateway-ratelimit">View on GitHub</a></footer>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let rate,burst,tokens,last,okN=0,badN=0,timer=null,history=[];
+function read(){rate=+$('rate').value;burst=+$('burst').value;
+$('rateV').textContent=rate+' tokens/s';$('burstV').textContent=burst;$('batchV').textContent=$('batch').value;
+$('cfg').textContent=`clients:\n  - name: demo\n    key: demo-key-123\n    rate: ${rate}\n    burst: ${burst}`;}
+function refill(){const now=performance.now();tokens=Math.min(burst,tokens+(now-last)/1000*rate);last=now;}
+function allow(){refill();if(tokens>=1){tokens-=1;return[true,0];}return[false,Math.ceil((1-tokens)/rate)];}
+function reset(){read();tokens=burst;last=performance.now();okN=badN=0;history=[];$('log').innerHTML='';$('retry').textContent='0s';}
+function fire(n){for(let i=0;i<n;i++){const[ok,wait]=allow();ok?okN++:badN++;history.push({t:Date.now(),ok});
+const p=document.createElement('span');p.className='pill '+(ok?'ok':'bad');p.textContent=ok?'200':'429';
+const log=$('log');log.prepend(p);while(log.children.length>60)log.lastChild.remove();$('retry').textContent=wait+'s';}}
+function draw(){refill();$('fill').style.height=(tokens/burst*100)+'%';$('tok').textContent=tokens.toFixed(1)+' / '+burst;
+$('okN').textContent=okN;$('badN').textContent=badN;
+const c=$('chart'),d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(c.width!==w*d){c.width=w*d;c.height=h*d;}
+const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,w,h);
+const now=Date.now();history=history.filter(e=>now-e.t<30000);const bins=30,bw=w/bins,a=new Array(bins).fill(0),b=new Array(bins).fill(0);
+history.forEach(e=>{const i=bins-1-Math.floor((now-e.t)/1000);if(i>=0)(e.ok?a:b)[i]++;});
+const max=Math.max(4,...a.map((v,i)=>v+b[i]));
+for(let i=0;i<bins;i++){const ha=a[i]/max*(h-8),hb=b[i]/max*(h-8);
+x.fillStyle='#22c55e';x.fillRect(i*bw+1,h-ha,bw-2,ha);x.fillStyle='#ef4444';x.fillRect(i*bw+1,h-ha-hb,bw-2,hb);}
+requestAnimationFrame(draw);}
+['rate','burst'].forEach(id=>$(id).addEventListener('input',()=>{refill();read();tokens=Math.min(tokens,burst);}));
+$('batch').addEventListener('input',read);
+$('fire').onclick=()=>fire(+$('batch').value);
+$('burstBtn').onclick=()=>fire(20);
+$('reset').onclick=reset;
+$('auto').onclick=()=>{if(timer){clearInterval(timer);timer=null;$('auto').textContent='Start auto-fire';}
+else{timer=setInterval(()=>fire(1),200);$('auto').textContent='Stop auto-fire (5/s)';}};
+reset();draw();
+</script>
+</body>
+</html>
